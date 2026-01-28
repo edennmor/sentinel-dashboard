@@ -14,6 +14,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/hello', (req, res) => {
+  res.json({ message: 'Hello from backend!' });
+});
+
+
 app.listen(4000, () => {
   console.log('Server running on http://localhost:4000');
 });
