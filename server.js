@@ -1,240 +1,212 @@
-const db = require("./db");
-const express = require("express");
-const cors = require("cors");
-const crypto = require("crypto");
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import helmet from "helmet";
+import morgan from "morgan";
+import { createClient } from "@supabase/supabase-js";
+
+dotenv.config();
 
 const app = express();
-
-/* middlewares */
 app.use(cors());
 app.use(express.json());
+app.use(helmet());
+app.use(morgan("dev"));
 
-/* =========================
-   Security events (in-memory)
-========================= */
-let securityEvents = [];
-let nextEventId = 1;
+const PORT = process.env.PORT || 4000;
 
-function logSecurityEvent({ ip, path, reason, level = "warn" }) {
-  const event = {
-    id: nextEventId++,
-    time: new Date().toISOString(),
-    ip,
-    path,
-    reason,
-    level,
-  };
-  securityEvents.unshift(event);
-  return event;
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in backend/.env");
+  process.exit(1);
 }
 
-/* =========================
-   Simple auth (token)
-========================= */
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123"; // לפרויקט
-const activeTokens = new Set();
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
-app.post("/api/auth/login", (req, res) => {
-  const { password } = req.body || {};
-  if (!password) return res.status(400).json({ error: "password is required" });
+/** ========= DB helpers ========= */
+async function insertSecurityEvent({ event_type, endpoint, ip_address, details }) {
+  const { data, error } = await supabase
+    .from("security_events")
+    .insert([{ event_type, endpoint, ip_address, details }])
+    .select()
+    .single();
 
-  if (password !== ADMIN_PASSWORD) {
-    logSecurityEvent({
-      ip: req.ip,
-      path: req.originalUrl,
-      reason: "Failed admin login",
-      level: "warn",
-    });
-    return res.status(401).json({ error: "Invalid password" });
-  }
-
-  const token = crypto.randomBytes(24).toString("hex");
-  activeTokens.add(token);
-
-  logSecurityEvent({
-    ip: req.ip,
-    path: req.originalUrl,
-    reason: "Admin login success",
-    level: "info",
-  });
-
-  res.json({ token });
-});
-
-function requireAdmin(req, res, next) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-
-  if (!token || !activeTokens.has(token)) {
-    logSecurityEvent({
-      ip: req.ip,
-      path: req.originalUrl,
-      reason: "Unauthorized admin access",
-      level: "block",
-    });
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
-  next();
+  if (error) throw error;
+  return data;
 }
 
-/* =========================
-   Rate limit / detection
-========================= */
-const ipStats = new Map();
-const WINDOW_MS = 60_000;            // דקה
-const MAX_REQ_PER_WINDOW = 120;      // כללי
-const MAX_SUSPICIOUS_PER_WINDOW = 5; // חשודים
-const BLOCK_MS = 5 * 60_000;         // 5 דקות
+/** ========= Canary / security middleware ========= */
+const CANARY_ENDPOINTS = new Set(["/admin", "/internal", "/debug", "/.env", "/wp-admin"]);
 
-function getClientIp(req) {
-  return req.ip || "unknown"; // ב-localhost זה יכול להיות ::1
-}
+app.use(async (req, res, next) => {
+  try {
+    const path = req.path;
 
-app.use((req, res, next) => {
-  const ip = getClientIp(req);
-  const t = Date.now();
+    if (CANARY_ENDPOINTS.has(path)) {
+      const ip =
+        req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+        req.socket.remoteAddress ||
+        "unknown";
 
-  if (!ipStats.has(ip)) {
-    ipStats.set(ip, {
-      count: 0,
-      suspicious: 0,
-      windowStart: t,
-      blockedUntil: 0,
-    });
+      await insertSecurityEvent({
+        event_type: "unauthorized_access",
+        endpoint: path,
+        ip_address: ip,
+        details: `method=${req.method} ua=${req.headers["user-agent"] || "n/a"}`
+      });
+
+      return res.status(404).send("Not Found");
+    }
+
+    next();
+  } catch (e) {
+    console.error("Canary logging failed:", e?.message || e);
+    next();
   }
+});
 
-  const s = ipStats.get(ip);
+/** ========= API ========= */
+app.get("/health", (req, res) => res.send("OK"));
 
-  // reset window
-  if (t - s.windowStart > WINDOW_MS) {
-    s.count = 0;
-    s.suspicious = 0;
-    s.windowStart = t;
+/**
+ * GET /events?limit=200&type=unauthorized_access&resolved=false&q=admin
+ */
+app.get("/events", async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit || 200), 500);
+    const type = (req.query.type || "").toString().trim();
+    const q = (req.query.q || "").toString().trim();
+    const resolvedParam = (req.query.resolved || "").toString().trim(); // "true"|"false"|""(all)
+
+    let query = supabase
+      .from("security_events")
+      .select("id, created_at, event_type, endpoint, ip_address, details, resolved, resolved_at")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (type) query = query.eq("event_type", type);
+
+    if (resolvedParam === "true") query = query.eq("resolved", true);
+    if (resolvedParam === "false") query = query.eq("resolved", false);
+
+    // simple search in endpoint/details/ip
+    if (q) {
+      // Supabase "or" filter
+      query = query.or(
+        `endpoint.ilike.%${q}%,details.ilike.%${q}%,ip_address.ilike.%${q}%`
+      );
+    }
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ events: data });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Server error" });
   }
+});
 
-  // blocked?
-  if (s.blockedUntil && t < s.blockedUntil) {
-    logSecurityEvent({
-      ip,
-      path: req.originalUrl,
-      reason: "Blocked IP (rate limit / suspicious)",
-      level: "block",
-    });
-    return res.status(429).json({ error: "Too many requests (blocked temporarily)" });
+// POST /events (manual)
+app.post("/events", async (req, res) => {
+  try {
+    const { event_type, endpoint, ip_address, details } = req.body || {};
+    if (!event_type || !endpoint || !ip_address) {
+      return res.status(400).json({ error: "Missing event_type/endpoint/ip_address" });
+    }
+
+    const row = await insertSecurityEvent({ event_type, endpoint, ip_address, details });
+    res.json({ ok: true, event: row });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Insert failed" });
   }
+});
 
-  s.count += 1;
+// PATCH /events/:id/resolve { resolved: true|false }
+app.patch("/events/:id/resolve", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const resolved = Boolean(req.body?.resolved);
 
-  // מה נחשב "חשוד"?
-  const isSuspiciousPath =
-    req.originalUrl.startsWith("/api/admin") ||
-    req.originalUrl.startsWith("/api/auth/login");
+    const payload = resolved
+      ? { resolved: true, resolved_at: new Date().toISOString() }
+      : { resolved: false, resolved_at: null };
 
-  if (isSuspiciousPath) s.suspicious += 1;
+    const { data, error } = await supabase
+      .from("security_events")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
 
-  // כללי
-  if (s.count > MAX_REQ_PER_WINDOW) {
-    s.blockedUntil = t + BLOCK_MS;
-    logSecurityEvent({
-      ip,
-      path: req.originalUrl,
-      reason: "Rate limit exceeded",
-      level: "block",
-    });
-    return res.status(429).json({ error: "Too many requests (rate limit)" });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true, event: data });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Resolve failed" });
   }
+});
 
-  // חשודים
-  if (s.suspicious > MAX_SUSPICIOUS_PER_WINDOW) {
-    s.blockedUntil = t + BLOCK_MS;
-    logSecurityEvent({
-      ip,
-      path: req.originalUrl,
-      reason: "Too many suspicious requests",
-      level: "block",
-    });
-    return res.status(429).json({ error: "Too many suspicious requests" });
+// DELETE /events/:id
+app.delete("/events/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const { error } = await supabase
+      .from("security_events")
+      .delete()
+      .eq("id", id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Delete failed" });
   }
-
-  next();
 });
 
-/* =========================
-   Routes
-========================= */
+// Simulate (creates 4 events)
+app.post("/simulate-attack", async (req, res) => {
+  try {
+    const ip =
+      req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
 
-/* health check */
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "Backend is running",
-    time: new Date().toISOString(),
-  });
+    const created = [];
+    created.push(await insertSecurityEvent({
+      event_type: "unauthorized_access",
+      endpoint: "/admin",
+      ip_address: ip,
+      details: "simulated_canary_hit"
+    }));
+
+    created.push(await insertSecurityEvent({
+      event_type: "ddos_suspected",
+      endpoint: "/api/search",
+      ip_address: ip,
+      details: "simulated_rate_spike"
+    }));
+
+    created.push(await insertSecurityEvent({
+      event_type: "failed_login",
+      endpoint: "/auth/login",
+      ip_address: ip,
+      details: "simulated_wrong_password"
+    }));
+
+    created.push(await insertSecurityEvent({
+      event_type: "sqli_suspected",
+      endpoint: "/api/users",
+      ip_address: ip,
+      details: "simulated_payload: ' OR 1=1 --"
+    }));
+
+    res.json({ ok: true, created });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || "Simulation failed" });
+  }
 });
 
-/* hello endpoint */
-app.get("/api/hello", (req, res) => {
-  res.json({ message: "Hello from backend 👋" });
-});
-
-/* GET all security events */
-app.get("/api/security-events", (req, res) => {
-  res.json(securityEvents);
-});
-
-/* Tasks (SQLite) */
-app.get("/api/tasks", (req, res) => {
-  db.all("SELECT id, title, done FROM tasks", (err, rows) => {
-    if (err) return res.status(500).json({ error: "database error" });
-    const result = rows.map((r) => ({ ...r, done: Boolean(r.done) }));
-    res.json(result);
-  });
-});
-
-app.post("/api/tasks", (req, res) => {
-  const { title } = req.body;
-  if (!title) return res.status(400).json({ error: "title is required" });
-
-  db.run("INSERT INTO tasks (title, done) VALUES (?, ?)", [title, 0], function (err) {
-    if (err) return res.status(500).json({ error: "database error" });
-    res.status(201).json({ id: this.lastID, title, done: false });
-  });
-});
-
-app.put("/api/tasks/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const { title, done } = req.body;
-
-  db.get("SELECT id, title, done FROM tasks WHERE id = ?", [id], (err, row) => {
-    if (err) return res.status(500).json({ error: "database error" });
-    if (!row) return res.status(404).json({ error: "task not found" });
-
-    const newTitle = title !== undefined ? title : row.title;
-    const newDone = done !== undefined ? (done ? 1 : 0) : row.done;
-
-    db.run("UPDATE tasks SET title = ?, done = ? WHERE id = ?", [newTitle, newDone, id], (err2) => {
-      if (err2) return res.status(500).json({ error: "database error" });
-      res.json({ id, title: newTitle, done: Boolean(newDone) });
-    });
-  });
-});
-
-app.delete("/api/tasks/:id", (req, res) => {
-  const id = Number(req.params.id);
-  db.run("DELETE FROM tasks WHERE id = ?", [id], function (err) {
-    if (err) return res.status(500).json({ error: "database error" });
-    if (this.changes === 0) return res.status(404).json({ error: "task not found" });
-    res.json({ id });
-  });
-});
-
-/* ADMIN - מוגן בטוקן */
-app.get("/api/admin", requireAdmin, (req, res) => {
-  res.json({ ok: true, message: "Welcome admin" });
-});
-
-/* START SERVER */
-app.listen(4000, () => {
-  console.log("Server running on http://localhost:4000");
+app.listen(PORT, () => {
+  console.log(`Backend running on http://localhost:${PORT}`);
 });
