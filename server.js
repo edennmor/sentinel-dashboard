@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import morgan from "morgan";
+import jwt from "jsonwebtoken";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
@@ -14,18 +15,13 @@ app.use(helmet());
 app.use(morgan("dev"));
 
 const PORT = process.env.PORT || 4000;
-
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY in backend/.env");
-  process.exit(1);
-}
+const JWT_SECRET = "supersecret"; // אפשר לשים ב-.env
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
-/** ========= DB helpers ========= */
 async function insertSecurityEvent({ event_type, endpoint, ip_address, details }) {
   const { data, error } = await supabase
     .from("security_events")
@@ -37,174 +33,102 @@ async function insertSecurityEvent({ event_type, endpoint, ip_address, details }
   return data;
 }
 
-/** ========= Canary / security middleware ========= */
-const CANARY_ENDPOINTS = new Set(["/admin", "/internal", "/debug", "/.env", "/wp-admin"]);
+///////////////////////////
+// 🔐 AUTH LOGIN
+///////////////////////////
+
+app.post("/auth/login", (req, res) => {
+  const { password } = req.body;
+
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: "Wrong password" });
+  }
+
+  const token = jwt.sign({ role: "admin" }, JWT_SECRET, { expiresIn: "8h" });
+
+  res.json({ token });
+});
+
+///////////////////////////
+// 🔐 AUTH MIDDLEWARE
+///////////////////////////
+
+function verifyToken(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ error: "Missing token" });
+
+  const token = header.split(" ")[1];
+
+  try {
+    jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+  }
+}
+
+///////////////////////////
+// Canary middleware
+///////////////////////////
+
+const CANARY_ENDPOINTS = new Set(["/admin", "/internal", "/debug", "/.env"]);
 
 app.use(async (req, res, next) => {
-  try {
-    const path = req.path;
+  if (CANARY_ENDPOINTS.has(req.path)) {
+    const ip = req.socket.remoteAddress || "unknown";
 
-    if (CANARY_ENDPOINTS.has(path)) {
-      const ip =
-        req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "unknown";
+    await insertSecurityEvent({
+      event_type: "unauthorized_access",
+      endpoint: req.path,
+      ip_address: ip,
+      details: "canary triggered",
+    });
 
-      await insertSecurityEvent({
-        event_type: "unauthorized_access",
-        endpoint: path,
-        ip_address: ip,
-        details: `method=${req.method} ua=${req.headers["user-agent"] || "n/a"}`
-      });
-
-      return res.status(404).send("Not Found");
-    }
-
-    next();
-  } catch (e) {
-    console.error("Canary logging failed:", e?.message || e);
-    next();
+    return res.status(404).send("Not Found");
   }
+  next();
 });
 
-/** ========= API ========= */
+///////////////////////////
+// PUBLIC
+///////////////////////////
+
 app.get("/health", (req, res) => res.send("OK"));
 
-/**
- * GET /events?limit=200&type=unauthorized_access&resolved=false&q=admin
- */
-app.get("/events", async (req, res) => {
-  try {
-    const limit = Math.min(Number(req.query.limit || 200), 500);
-    const type = (req.query.type || "").toString().trim();
-    const q = (req.query.q || "").toString().trim();
-    const resolvedParam = (req.query.resolved || "").toString().trim(); // "true"|"false"|""(all)
+///////////////////////////
+// 🔐 PROTECTED ROUTES
+///////////////////////////
 
-    let query = supabase
-      .from("security_events")
-      .select("id, created_at, event_type, endpoint, ip_address, details, resolved, resolved_at")
-      .order("created_at", { ascending: false })
-      .limit(limit);
+app.get("/events", verifyToken, async (req, res) => {
+  const { data } = await supabase
+    .from("security_events")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-    if (type) query = query.eq("event_type", type);
-
-    if (resolvedParam === "true") query = query.eq("resolved", true);
-    if (resolvedParam === "false") query = query.eq("resolved", false);
-
-    // simple search in endpoint/details/ip
-    if (q) {
-      // Supabase "or" filter
-      query = query.or(
-        `endpoint.ilike.%${q}%,details.ilike.%${q}%,ip_address.ilike.%${q}%`
-      );
-    }
-
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-
-    res.json({ events: data });
-  } catch (e) {
-    res.status(500).json({ error: e?.message || "Server error" });
-  }
+  res.json({ events: data });
 });
 
-// POST /events (manual)
-app.post("/events", async (req, res) => {
-  try {
-    const { event_type, endpoint, ip_address, details } = req.body || {};
-    if (!event_type || !endpoint || !ip_address) {
-      return res.status(400).json({ error: "Missing event_type/endpoint/ip_address" });
-    }
+app.post("/simulate-attack", verifyToken, async (req, res) => {
+  const ip = req.socket.remoteAddress || "unknown";
 
-    const row = await insertSecurityEvent({ event_type, endpoint, ip_address, details });
-    res.json({ ok: true, event: row });
-  } catch (e) {
-    res.status(500).json({ error: e?.message || "Insert failed" });
-  }
-});
+  const created = [];
 
-// PATCH /events/:id/resolve { resolved: true|false }
-app.patch("/events/:id/resolve", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const resolved = Boolean(req.body?.resolved);
+  created.push(await insertSecurityEvent({
+    event_type: "unauthorized_access",
+    endpoint: "/admin",
+    ip_address: ip,
+    details: "simulated"
+  }));
 
-    const payload = resolved
-      ? { resolved: true, resolved_at: new Date().toISOString() }
-      : { resolved: false, resolved_at: null };
+  created.push(await insertSecurityEvent({
+    event_type: "ddos_suspected",
+    endpoint: "/api/search",
+    ip_address: ip,
+    details: "simulated"
+  }));
 
-    const { data, error } = await supabase
-      .from("security_events")
-      .update(payload)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ ok: true, event: data });
-  } catch (e) {
-    res.status(500).json({ error: e?.message || "Resolve failed" });
-  }
-});
-
-// DELETE /events/:id
-app.delete("/events/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-
-    const { error } = await supabase
-      .from("security_events")
-      .delete()
-      .eq("id", id);
-
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e?.message || "Delete failed" });
-  }
-});
-
-// Simulate (creates 4 events)
-app.post("/simulate-attack", async (req, res) => {
-  try {
-    const ip =
-      req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
-      req.socket.remoteAddress ||
-      "unknown";
-
-    const created = [];
-    created.push(await insertSecurityEvent({
-      event_type: "unauthorized_access",
-      endpoint: "/admin",
-      ip_address: ip,
-      details: "simulated_canary_hit"
-    }));
-
-    created.push(await insertSecurityEvent({
-      event_type: "ddos_suspected",
-      endpoint: "/api/search",
-      ip_address: ip,
-      details: "simulated_rate_spike"
-    }));
-
-    created.push(await insertSecurityEvent({
-      event_type: "failed_login",
-      endpoint: "/auth/login",
-      ip_address: ip,
-      details: "simulated_wrong_password"
-    }));
-
-    created.push(await insertSecurityEvent({
-      event_type: "sqli_suspected",
-      endpoint: "/api/users",
-      ip_address: ip,
-      details: "simulated_payload: ' OR 1=1 --"
-    }));
-
-    res.json({ ok: true, created });
-  } catch (e) {
-    res.status(500).json({ error: e?.message || "Simulation failed" });
-  }
+  res.json({ ok: true, created });
 });
 
 app.listen(PORT, () => {
