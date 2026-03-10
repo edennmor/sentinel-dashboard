@@ -1,4 +1,4 @@
-const API = process.env.REACT_APP_API_URL || "http://localhost:4000";
+const API = "http://13.53.130.40:4000";
 
 function getToken() {
   return localStorage.getItem("token");
@@ -9,72 +9,74 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/* ========= LOGIN ========= */
-export async function login(password) {
-  const res = await fetch(`${API}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password })
+async function request(path, options = {}) {
+  const res = await fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+      ...authHeaders()
+    }
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error);
+
+  if (!res.ok) {
+    throw new Error(data?.error || "Request failed");
+  }
+
+  return data;
+}
+
+/* LOGIN */
+
+export async function login(password) {
+  const data = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ password })
+  });
+
   localStorage.setItem("token", data.token);
 }
 
-/* ========= EVENTS ========= */
+/* EVENTS */
+
 export async function getEvents({ limit = 200, type = "", resolved = "", q = "" } = {}) {
   const params = new URLSearchParams();
-  params.set("limit", String(limit));
+
+  params.set("limit", limit);
+
   if (type) params.set("type", type);
   if (resolved !== "") params.set("resolved", resolved);
   if (q) params.set("q", q);
 
-  const res = await fetch(`${API}/events?${params.toString()}`, {
-    headers: authHeaders()
-  });
+  const data = await request(`/events?${params.toString()}`);
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "Failed to fetch events");
   return data.events;
 }
 
-export async function simulateAttack() {
-  const res = await fetch(`${API}/simulate-attack`, {
-    method: "POST",
-    headers: authHeaders()
-  });
+/* SIMULATE ATTACK */
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "Simulation failed");
-  return data;
+export async function simulateAttack() {
+  return request("/simulate-attack", { method: "POST" });
 }
 
+/* RESOLVE EVENT */
+
 export async function resolveEvent(id, resolved) {
-  const res = await fetch(`${API}/events/${id}/resolve`, {
+  const data = await request(`/events/${id}/resolve`, {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders()
-    },
     body: JSON.stringify({ resolved })
   });
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "Resolve failed");
   return data.event;
 }
 
-export async function deleteEvent(id) {
-  const res = await fetch(`${API}/events/${id}`, {
-    method: "DELETE",
-    headers: authHeaders()
-  });
+/* DELETE EVENT */
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || "Delete failed");
+export async function deleteEvent(id) {
+  await request(`/events/${id}`, { method: "DELETE" });
   return true;
 }
 
-/* תאימות לשם הישן בפרויקט */
 export const setResolved = resolveEvent;
