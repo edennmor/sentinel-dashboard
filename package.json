@@ -1,34 +1,9 @@
 {
-  "name": "sentinel-frontend",
+  "name": "sentinel-backend",
   "version": "1.0.0",
   "private": true,
-  "homepage": ".",
+  "type": "module",
   "dependencies": {
-<<<<<<< HEAD
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^7.13.1",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^5.1.0"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-=======
     "@supabase/supabase-js": "^2.45.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -37,6 +12,5 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0"
->>>>>>> 2679f4ac02d16bb996a665b0e468b2124ba142b3
   }
 }

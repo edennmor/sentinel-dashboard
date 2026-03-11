@@ -10,8 +10,10 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 
 const app = express();
-
-app.use(cors({ origin: "*" }));
+app.use(cors({
+  origin: ["http://localhost:3000"],
+  credentials: true
+}));
 app.use(express.json());
 app.use(helmet());
 app.use(morgan("dev"));
@@ -35,9 +37,7 @@ async function insertSecurityEvent({ event_type, endpoint, ip_address, details }
   return data;
 }
 
-///////////////////////////
-// HELPER: GET REAL IP
-///////////////////////////
+
 
 function getIP(req) {
   return (
@@ -47,9 +47,6 @@ function getIP(req) {
   );
 }
 
-///////////////////////////
-// RATE LIMIT DETECTION
-///////////////////////////
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -70,9 +67,7 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-///////////////////////////
-// SCAN DETECTION
-///////////////////////////
+
 
 const scanAttempts = new Map();
 
@@ -101,9 +96,6 @@ app.use((req, res, next) => {
   next();
 });
 
-///////////////////////////
-// LOGIN
-///////////////////////////
 
 app.post("/auth/login", (req, res) => {
   const { password } = req.body;
@@ -117,9 +109,7 @@ app.post("/auth/login", (req, res) => {
   res.json({ token });
 });
 
-///////////////////////////
-// AUTH MIDDLEWARE
-///////////////////////////
+
 
 function verifyToken(req, res, next) {
   const header = req.headers.authorization;
@@ -138,9 +128,8 @@ function verifyToken(req, res, next) {
   }
 }
 
-///////////////////////////
-// CANARY ENDPOINTS
-///////////////////////////
+
+
 
 const CANARY_ENDPOINTS = new Set([
   "/admin",
@@ -172,17 +161,13 @@ app.use(async (req, res, next) => {
   next();
 });
 
-///////////////////////////
-// PUBLIC
-///////////////////////////
+
 
 app.get("/health", (req, res) => {
   res.send("OK");
 });
 
-///////////////////////////
-// EVENTS
-///////////////////////////
+
 
 app.get("/events", verifyToken, async (req, res) => {
 
@@ -200,9 +185,7 @@ app.get("/events", verifyToken, async (req, res) => {
   res.json({ events: data || [] });
 });
 
-///////////////////////////
-// SIMULATE ATTACK
-///////////////////////////
+
 
 app.post("/simulate-attack", verifyToken, async (req, res) => {
 
@@ -234,7 +217,6 @@ app.post("/simulate-attack", verifyToken, async (req, res) => {
   });
 });
 
-///////////////////////////
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend running on port ${PORT}`);
