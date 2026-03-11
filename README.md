@@ -12,8 +12,7 @@ The system is built as a full end-to-end platform including frontend, backend, d
 
 ## Live Demo
 
-Application URL  
-http://13.53.130.40
+http://13.53.130.40:3000
 
 Access to the dashboard is protected by a login page.
 
