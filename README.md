@@ -1,60 +1,116 @@
-# Sentinel Dashboard 🔐
+# Sentinel Security Dashboard
 
-A secure full-stack dashboard deployed on AWS.
+A full-stack security monitoring dashboard that detects and logs suspicious activity such as scanning attempts, unauthorized access, and potential DDoS behavior.
 
----
-
-## 🔗 Live Demo
-https://dzufh9if0ngfc.cloudfront.net
-
-## 🔐 Admin Access
-Password: admin123
-
-This allows quick access for reviewers and interviewers.
+The system simulates real-world security monitoring and displays detected events in a live dashboard.
 
 ---
 
-## 🧩 Features
-- Secure admin login
-- Token-based authentication
-- Unauthorized access protection
-- Responsive dashboard UI
-- Cloud deployment with AWS CloudFront & S3
+## Live Demo
+
+http://13.53.130.40:3000
 
 ---
 
-## 🛠️ Tech Stack
+## Features
+
+- Admin login with JWT authentication
+- Security event logging
+- Detection of suspicious behavior:
+  - Rate limit abuse (DDoS-like behavior)
+  - Endpoint scanning
+  - Unauthorized access attempts (Canary endpoints)
+- Security events dashboard
+- Attack simulation button for testing detections
+- Real-time security monitoring interface
+
+---
+
+## Tech Stack
+
 Frontend
 - React
-- Vite
+- JavaScript
+- Fetch API
 
 Backend
 - Node.js
 - Express
+- JWT Authentication
+- Rate Limiting
+- Helmet security middleware
+- Morgan logging
 
-Cloud & DevOps
-- AWS S3 (static hosting)
-- AWS CloudFront (CDN & HTTPS)
-- Environment variables for security
+Database
+- Supabase (PostgreSQL)
 
----
-
-## 🔒 Security Highlights
-- Protected routes
-- Token validation
-- Unauthorized message for invalid access
-
----
-
-## 🚀 Why This Project Stands Out
-This project demonstrates:
-
-✔ Full-Stack development  
-✔ Cloud deployment  
-✔ Security best practices  
-✔ Production-ready architecture  
+Infrastructure
+- AWS EC2 deployment
+- PM2 process manager
+- Linux server environment
 
 ---
 
-## 👩‍💻 Author
-Eden M
+## Security Mechanisms Implemented
+
+Rate Limiting  
+Detects excessive requests and logs them as potential DDoS activity.
+
+Canary Endpoints  
+Hidden endpoints such as `/admin`, `/internal`, `/debug`, and `/.env` trigger alerts when accessed.
+
+Endpoint Scanning Detection  
+Tracks rapid requests across multiple endpoints from the same IP.
+
+JWT Authentication  
+Admin access to the dashboard requires valid authentication tokens.
+
+---
+
+## Project Architecture
+
+```
+Frontend (React)
+       │
+       ▼
+Backend API (Node.js / Express)
+       │
+       ▼
+Security Event Logging
+       │
+       ▼
+Supabase Database
+```
+
+---
+
+## Running Locally
+
+Backend
+
+```
+cd backend
+npm install
+npm start
+```
+
+Frontend
+
+```
+cd frontend
+npm install
+npm start
+```
+
+---
+
+## Deployment
+
+The application is deployed on AWS EC2 and managed using PM2 to keep the server running continuously.
+
+---
+
+## Author
+
+Eden Mor  
+Computer Science & Mathematics Student
