@@ -113,4 +113,4 @@ The application is deployed on AWS EC2 and managed using PM2 to keep the server 
 ## Author
 
 Eden Mor  
-Computer Science & Mathematics Student
+
