@@ -1,111 +1,180 @@
 # Sentinel Security Dashboard
 
-## Overview
+Sentinel is a lightweight security monitoring system designed to detect suspicious traffic patterns and visualize security events in real time.
 
-Sentinel is an end-to-end security monitoring platform designed to detect suspicious activity in web applications. The system analyzes incoming HTTP requests, identifies attack patterns such as endpoint scanning, unauthorized access attempts, abnormal request rates, and behaviors indicating potential Distributed Denial of Service (DDoS) attacks.
+The system analyzes incoming API requests and identifies potential security threats such as DDoS-like traffic spikes, endpoint scanning attempts, brute-force login attacks, and SQL injection patterns.
 
-The platform demonstrates how security monitoring mechanisms can be integrated directly into modern web architectures by combining traffic analysis, attack detection logic, security event logging, and a centralized monitoring interface.
-
-The system is built as a full end-to-end platform including frontend, backend, database, and cloud infrastructure.
+Detected events are stored in a database and displayed in a React dashboard for monitoring and analysis.
 
 ---
 
-## Live Demo
+## Features
 
-http://13.53.130.40:3000
+### Traffic Monitoring
+The backend continuously analyzes incoming HTTP requests and detects abnormal activity.
 
-Access to the dashboard is protected by a login page.
+Supported detections include:
 
-Password  
-admin123
-
----
-
-## Core Capabilities
-
-• Detection of suspicious request patterns  
-• Endpoint scanning detection  
-• Unauthorized access detection using Canary endpoints  
-• Rate-limit abuse detection  
-• Monitoring patterns indicating potential DDoS attacks  
-• Attack simulation for testing detection mechanisms  
-• Real-time security event monitoring
-
-The system analyzes HTTP request behavior in order to identify automated or malicious activity.
-
-For example, when a client sends requests to multiple endpoints within a short time frame, the system may identify this as an endpoint scanning attempt. In such cases, Sentinel records the event and displays it in the monitoring dashboard.
-
-The platform also implements Canary endpoints such as `/admin`, `/debug`, `/internal`, and `/.env`. These endpoints function as security traps. Legitimate users should not attempt to access them directly, therefore any request made to these paths is considered suspicious and is logged as a potential unauthorized access attempt.
-
-In addition, the system monitors request rates and detects abnormal traffic patterns. When a client sends an unusually high number of requests within a short time window, the system may classify this behavior as potential automated traffic or an early stage of a DDoS attack.
-
-The platform also includes an attack simulation feature which allows the generation of simulated attack events in order to verify the detection mechanisms and demonstrate how the monitoring system responds to suspicious activity.
+- DDoS-like request flooding
+- Endpoint scanning attempts
+- Brute-force login attempts
+- SQL injection patterns
+- Unauthorized access to protected endpoints
 
 ---
 
-## System Architecture
+## Detection Mechanisms
 
-The system is implemented as a full stack architecture consisting of several layers.
+**Rate Limiting**
 
-### Frontend
+Limits requests per IP address.
 
-A React-based monitoring dashboard that displays detected security events in real time.  
-The interface allows users to observe application activity and identify suspicious patterns.
+25 requests per minute per IP
 
-### Backend
-
-A Node.js and Express API responsible for:
-
-- Analyzing incoming HTTP requests  
-- Detecting attack patterns  
-- Enforcing rate limiting  
-- Generating security events  
-- Handling authentication using JWT
-
-### Database
-
-Supabase is used as the persistent storage layer for security events.
-
-Each detected event is stored with metadata such as:
-
-- Event type  
-- Source IP address  
-- Accessed endpoint  
-- Timestamp  
-- Detection details
-
-### Cloud Deployment
-
-The platform is deployed in a cloud environment simulating a production-style architecture.
-
-Backend Hosting  
-AWS EC2
-
-Frontend Static Hosting  
-AWS S3
-
-Process Management  
-PM2 ensures backend process stability and automatic restarts.
+Exceeding the threshold triggers a `ddos_suspected` event.
 
 ---
 
-## Technologies
+**Endpoint Scanning Detection**
 
-React  
-Node.js  
-Express  
-JWT Authentication  
-Supabase  
-AWS EC2  
-AWS S3  
-PM2
+Tracks short-term request patterns and flags IPs making multiple rapid requests to different endpoints.
+
+Triggers:
+
+scanner_detected
 
 ---
 
-## Project Goal
+**Brute Force Detection**
 
-The goal of this project is to demonstrate how security monitoring mechanisms can be integrated into modern web applications in order to detect, log, and visualize suspicious activity at the application level.
+Monitors repeated login failures from the same IP within a short time window.
 
-By combining traffic analysis, attack detection logic, event logging, and real-time visualization, the system illustrates how application-level monitoring can provide visibility into abnormal traffic patterns and potential security threats targeting web services.
+Triggers:
 
+brute_force
 
+---
+
+**SQL Injection Detection**
+
+Incoming requests are inspected for common SQL injection patterns such as:
+
+' OR 1=1  
+UNION SELECT  
+DROP TABLE  
+--
+
+Triggers:
+
+sqli_suspected
+
+---
+
+**Canary Endpoints**
+
+Hidden endpoints are used to detect unauthorized probing attempts.
+
+Examples:
+
+/admin  
+/internal  
+/debug  
+/.env
+
+Access attempts trigger:
+
+unauthorized_access
+
+---
+
+## Dashboard
+
+A React dashboard provides an interface to view and analyze security events.
+
+Capabilities include:
+
+- Viewing detected security events
+- Filtering events by attack type
+- Inspecting endpoint and IP activity
+- Simulating attacks for testing
+
+---
+
+## Architecture
+
+React Dashboard (AWS S3 + CloudFront)  
+↓  
+Node.js / Express API (AWS EC2)  
+↓  
+Supabase Database (event storage)
+
+---
+
+## Tech Stack
+
+**Backend**
+- Node.js
+- Express
+- JWT authentication
+- Security detection middleware
+- Rate limiting
+
+**Frontend**
+- React
+- Dashboard UI for event monitoring
+
+**Infrastructure**
+- AWS EC2 – backend API
+- AWS S3 + CloudFront – frontend hosting
+- Supabase – database for event logging
+
+---
+
+## Security Event Structure
+
+Each event stored in the database includes:
+
+- event_type
+- endpoint
+- ip_address
+- details
+- created_at
+
+---
+
+## Example Event Types
+
+ddos_suspected  
+scanner_detected  
+brute_force  
+sqli_suspected  
+unauthorized_access  
+failed_login
+
+---
+
+## Deployment
+
+Frontend:
+
+React build → AWS S3 → CloudFront
+
+Backend:
+
+Node.js API → AWS EC2
+
+Database:
+
+Supabase
+
+---
+
+## Future Improvements
+
+Possible enhancements:
+
+- Event severity scoring
+- Event analytics and visualization
+- IP reputation checks
+- Alerting system (Slack / Email)
+- Geo-location of attackers
