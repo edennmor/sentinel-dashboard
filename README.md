@@ -1,180 +1,114 @@
-# Sentinel Security Dashboard
+# Sentinel – AI-Powered Cybersecurity Monitoring Platform
 
-Sentinel is a lightweight security monitoring system designed to detect suspicious traffic patterns and visualize security events in real time.
+Sentinel is a full-stack cybersecurity monitoring platform I built with a strong focus on backend security logic and real-time traffic analysis.
 
-The system analyzes incoming API requests and identifies potential security threats such as DDoS-like traffic spikes, endpoint scanning attempts, brute-force login attacks, and SQL injection patterns.
+The system processes incoming HTTP requests through multiple detection layers, identifies attack patterns such as DDoS, SQL injection, and brute-force attempts, and logs structured security events into a database. On top of this rule-based detection engine, I integrated an AI layer to classify requests and provide clear explanations for suspicious behavior, all visualized in a real-time dashboard.
 
-Detected events are stored in a database and displayed in a React dashboard for monitoring and analysis.
+I designed and built this system from scratch as a personal project to deepen my understanding of backend security and real-world attack detection.
+---
+
+## 🔗 Live Demo  
+http://13.53.130.40:3000/
 
 ---
 
-## Features
+## System Overview
 
-### Traffic Monitoring
-The backend continuously analyzes incoming HTTP requests and detects abnormal activity.
+The platform follows a layered detection approach:
 
-Supported detections include:
-
-- DDoS-like request flooding
-- Endpoint scanning attempts
-- Brute-force login attempts
-- SQL injection patterns
-- Unauthorized access to protected endpoints
+1. Request interception layer – captures all incoming traffic  
+2. Detection middleware layer – applies multiple security checks  
+3. Event logging layer – stores structured security events  
+4. AI analysis layer – classifies suspicious behavior  
+5. Visualization layer – presents insights in the dashboard  
 
 ---
 
-## Detection Mechanisms
+## Backend Security Logic
 
-**Rate Limiting**
+### Rate Limiting (DDoS Detection)
+- Tracks request frequency per IP  
+- Threshold-based detection (25 requests/minute)  
+- Logs `ddos_suspected` events  
 
-Limits requests per IP address.
+### Endpoint Scanning Detection
+- Detects rapid access across multiple endpoints  
+- Identifies reconnaissance behavior  
+- Logs `scanner_detected` events  
 
-25 requests per minute per IP
+### Brute Force Detection
+- Tracks repeated failed login attempts  
+- Time-window based logic  
+- Logs `brute_force` and `failed_login` events  
 
-Exceeding the threshold triggers a `ddos_suspected` event.
+### SQL Injection Detection
+- Inspects URL + request body  
+- Matches known injection patterns  
+- Logs `sqli_suspected` events  
 
----
-
-**Endpoint Scanning Detection**
-
-Tracks short-term request patterns and flags IPs making multiple rapid requests to different endpoints.
-
-Triggers:
-
-scanner_detected
-
----
-
-**Brute Force Detection**
-
-Monitors repeated login failures from the same IP within a short time window.
-
-Triggers:
-
-brute_force
+### Canary Endpoints (Trap Mechanism)
+- Hidden endpoints like `/admin`, `/.env`  
+- Any access is flagged as suspicious  
+- Logs `unauthorized_access` events  
 
 ---
 
-**SQL Injection Detection**
+## AI-Based Threat Analysis
 
-Incoming requests are inspected for common SQL injection patterns such as:
+- Classifies requests as **"normal" or "suspicious"**  
+- Provides short explanations  
+- Adds an intelligent layer beyond static rules  
 
-' OR 1=1  
-UNION SELECT  
-DROP TABLE  
---
+Example:
 
-Triggers:
-
-sqli_suspected
-
----
-
-**Canary Endpoints**
-
-Hidden endpoints are used to detect unauthorized probing attempts.
-
-Examples:
-
-/admin  
-/internal  
-/debug  
-/.env
-
-Access attempts trigger:
-
-unauthorized_access
+{
+  "type": "suspicious",
+  "reason": "Possible SQL injection pattern"
+}
 
 ---
 
-## Dashboard
+## Dashboard Features
 
-A React dashboard provides an interface to view and analyze security events.
-
-Capabilities include:
-
-- Viewing detected security events
-- Filtering events by attack type
-- Inspecting endpoint and IP activity
-- Simulating attacks for testing
+- Real-time event monitoring and filtering  
+- IP tracking and behavioral analysis  
+- Attack simulation for testing detection logic  
+- Visual insights into traffic patterns  
 
 ---
 
 ## Architecture
 
-React Dashboard (AWS S3 + CloudFront)  
-↓  
-Node.js / Express API (AWS EC2)  
-↓  
-Supabase Database (event storage)
+React (AWS S3 + CloudFront)  
+→ Node.js / Express API (AWS EC2)  
+→ Supabase (PostgreSQL)
 
 ---
 
 ## Tech Stack
 
-**Backend**
-- Node.js
-- Express
-- JWT authentication
-- Security detection middleware
-- Rate limiting
-
-**Frontend**
-- React
-- Dashboard UI for event monitoring
-
-**Infrastructure**
-- AWS EC2 – backend API
-- AWS S3 + CloudFront – frontend hosting
-- Supabase – database for event logging
+- React  
+- Node.js / Express  
+- OpenAI API  
+- Supabase  
+- AWS (EC2, S3, CloudFront)  
 
 ---
 
-## Security Event Structure
+## What This Project Demonstrates
 
-Each event stored in the database includes:
-
-- event_type
-- endpoint
-- ip_address
-- details
-- created_at
-
----
-
-## Example Event Types
-
-ddos_suspected  
-scanner_detected  
-brute_force  
-sqli_suspected  
-unauthorized_access  
-failed_login
-
----
-
-## Deployment
-
-Frontend:
-
-React build → AWS S3 → CloudFront
-
-Backend:
-
-Node.js API → AWS EC2
-
-Database:
-
-Supabase
+- Designing backend security systems  
+- Building detection logic for real attack patterns  
+- Combining rule-based + AI-based analysis  
+- Full-stack cloud deployment  
+- System design and cybersecurity thinking  
 
 ---
 
 ## Future Improvements
 
-Possible enhancements:
-
-- Event severity scoring
-- Event analytics and visualization
-- IP reputation checks
-- Alerting system (Slack / Email)
-- Geo-location of attackers
+- Threat severity scoring  
+- Real-time alerting (Slack / Email)  
+- IP reputation and enrichment  
+- Geo-location of attackers  
+- Advanced analytics  
