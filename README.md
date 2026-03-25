@@ -9,7 +9,7 @@ I designed and built this system from scratch as a personal project to deepen my
 
 ## 🔗 Live Demo  
 http://13.53.130.40:3000/
-
+Password: admin123
 ---
 
 ## System Overview
